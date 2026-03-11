@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "dnspy": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "dotnet",
+        "C:/Tools/Cooking/Reverse/dnSpy/dnspy-mcp/src/DnSpyMcpServer/bin/Release/net8.0/win-x64/DnSpyMcpServer.dll"
+      ]
+    }
+  }
+}
