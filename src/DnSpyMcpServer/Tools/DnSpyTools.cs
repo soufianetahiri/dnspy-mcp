@@ -158,6 +158,66 @@ internal static class DnSpyTools
         });
     }
 
+    [McpTool("patch_replace_string_literal", "Patch one IL string literal at a method token + IL offset. Always creates a backup first.")]
+    public static ToolCallResult PatchReplaceStringLiteral(
+        ToolContext ctx,
+        [ToolParam("Path to target assembly (.exe/.dll).")]
+        string assemblyPath,
+        [ToolParam("MethodDef token (example: 0x060005C1).")]
+        string methodDefToken,
+        [ToolParam("IL offset (example: IL_01D2).")]
+        string ilOffset,
+        [ToolParam("New literal text.")]
+        string newText,
+        [ToolParam("Patch in place (default false).")]
+        bool inPlace = false,
+        [ToolParam("Output path when not inPlace. Optional.")]
+        string? outputPath = null)
+    {
+        var result = ctx.Analysis.PatchReplaceStringLiteral(assemblyPath, methodDefToken, ilOffset, newText, inPlace, outputPath);
+        return new ToolCallResult(result, new
+        {
+            assemblyPath,
+            methodDefToken,
+            ilOffset,
+            newText,
+            inPlace,
+            outputPath,
+            backupAlwaysCreated = true,
+            result
+        });
+    }
+
+    [McpTool("patch_nop_instructions", "Patch one or more IL instructions to NOP starting at an IL offset. Always creates a backup first.")]
+    public static ToolCallResult PatchNopInstructions(
+        ToolContext ctx,
+        [ToolParam("Path to target assembly (.exe/.dll).")]
+        string assemblyPath,
+        [ToolParam("MethodDef token (example: 0x060005C1).")]
+        string methodDefToken,
+        [ToolParam("Start IL offset (example: IL_01DD).")]
+        string ilOffset,
+        [ToolParam("Number of instructions to NOP.")]
+        int count = 1,
+        [ToolParam("Patch in place (default false).")]
+        bool inPlace = false,
+        [ToolParam("Output path when not inPlace. Optional.")]
+        string? outputPath = null)
+    {
+        var result = ctx.Analysis.PatchNopInstructions(assemblyPath, methodDefToken, ilOffset, count, inPlace, outputPath);
+        return new ToolCallResult(result, new
+        {
+            assemblyPath,
+            methodDefToken,
+            ilOffset,
+            count,
+            inPlace,
+            outputPath,
+            backupAlwaysCreated = true,
+            result
+        });
+    }
+
     [McpTool("format_dnspy_jump", "Build step-by-step dnSpy navigation instructions from metadata tokens.")]
     public static ToolCallResult FormatDnSpyJump(
         ToolContext ctx,

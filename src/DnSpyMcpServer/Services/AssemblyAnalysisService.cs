@@ -197,6 +197,96 @@ internal sealed class AssemblyAnalysisService
             : string.Join(Environment.NewLine, methods);
     }
 
+    public string PatchReplaceStringLiteral(string assemblyPath, string methodDefToken, string ilOffset, string newText,
+        bool inPlace = false, string? outputPath = null)
+    {
+        var sourcePath = NormalizePath(assemblyPath);
+        if (!File.Exists(sourcePath))
+            throw new FileNotFoundException($"Assembly not found: {sourcePath}");
+
+        var destinationPath = ResolvePatchDestination(sourcePath, inPlace, outputPath);
+        var backupPath = BuildBackupPath(sourcePath);
+        File.Copy(sourcePath, backupPath, overwrite: false);
+
+        var module = ModuleDefMD.Load(sourcePath);
+        var method = ResolveMethodByToken(module, methodDefToken);
+        if (!method.HasBody || method.Body is null)
+            throw new InvalidOperationException($"Method has no IL body: {methodDefToken}");
+
+        var offset = ParseIlOffset(ilOffset);
+        var instruction = method.Body.Instructions.FirstOrDefault(i => i.Offset == offset)
+            ?? throw new InvalidOperationException($"IL offset not found in method {methodDefToken}: IL_{offset:X4}");
+
+        if (instruction.Operand is not string oldText)
+            throw new InvalidOperationException($"Instruction at IL_{offset:X4} is not a string literal (ldstr).");
+
+        instruction.Operand = newText;
+        module.Write(destinationPath);
+
+        return string.Join(Environment.NewLine,
+            "Patch applied: replace string literal",
+            $"source: {sourcePath}",
+            $"backup: {backupPath}",
+            $"output: {destinationPath}",
+            $"method: {FormatToken(method.MDToken.Raw)}",
+            $"offset: IL_{offset:X4}",
+            $"old: \"{oldText}\"",
+            $"new: \"{newText}\"");
+    }
+
+    public string PatchNopInstructions(string assemblyPath, string methodDefToken, string ilOffset, int count,
+        bool inPlace = false, string? outputPath = null)
+    {
+        if (count <= 0)
+            throw new InvalidOperationException("count must be > 0");
+
+        var sourcePath = NormalizePath(assemblyPath);
+        if (!File.Exists(sourcePath))
+            throw new FileNotFoundException($"Assembly not found: {sourcePath}");
+
+        var destinationPath = ResolvePatchDestination(sourcePath, inPlace, outputPath);
+        var backupPath = BuildBackupPath(sourcePath);
+        File.Copy(sourcePath, backupPath, overwrite: false);
+
+        var module = ModuleDefMD.Load(sourcePath);
+        var method = ResolveMethodByToken(module, methodDefToken);
+        if (!method.HasBody || method.Body is null)
+            throw new InvalidOperationException($"Method has no IL body: {methodDefToken}");
+
+        var offset = ParseIlOffset(ilOffset);
+        var instructions = method.Body.Instructions;
+        var startIndex = -1;
+        for (var i = 0; i < instructions.Count; i++)
+        {
+            if (instructions[i].Offset == offset)
+            {
+                startIndex = i;
+                break;
+            }
+        }
+
+        if (startIndex < 0)
+            throw new InvalidOperationException($"IL offset not found in method {methodDefToken}: IL_{offset:X4}");
+
+        var end = Math.Min(startIndex + count, instructions.Count);
+        for (var i = startIndex; i < end; i++)
+        {
+            instructions[i].OpCode = dnlib.DotNet.Emit.OpCodes.Nop;
+            instructions[i].Operand = null;
+        }
+
+        module.Write(destinationPath);
+
+        return string.Join(Environment.NewLine,
+            "Patch applied: NOP instructions",
+            $"source: {sourcePath}",
+            $"backup: {backupPath}",
+            $"output: {destinationPath}",
+            $"method: {FormatToken(method.MDToken.Raw)}",
+            $"startOffset: IL_{offset:X4}",
+            $"count: {end - startIndex}");
+    }
+
     private LoadedAssembly GetOrLoad(string assemblyPath)
     {
         var normalized = NormalizePath(assemblyPath);
@@ -279,6 +369,58 @@ internal sealed class AssemblyAnalysisService
     }
 
     private static string FormatToken(uint raw) => $"0x{raw:X8}";
+
+    private static MethodDef ResolveMethodByToken(ModuleDefMD module, string methodDefToken)
+    {
+        var token = ParseHexToken(methodDefToken);
+        var provider = module.ResolveToken(token) as MethodDef;
+        return provider ?? throw new InvalidOperationException($"MethodDef token not found: {FormatToken(token)}");
+    }
+
+    private static uint ParseHexToken(string tokenText)
+    {
+        var t = tokenText.Trim();
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            t = t[2..];
+
+        if (!uint.TryParse(t, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            throw new InvalidOperationException($"Invalid token format: {tokenText}");
+
+        return value;
+    }
+
+    private static int ParseIlOffset(string ilOffset)
+    {
+        var t = ilOffset.Trim();
+        if (t.StartsWith("IL_", StringComparison.OrdinalIgnoreCase))
+            t = t[3..];
+
+        if (!int.TryParse(t, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var value) || value < 0)
+            throw new InvalidOperationException($"Invalid IL offset: {ilOffset}");
+
+        return value;
+    }
+
+    private static string ResolvePatchDestination(string sourcePath, bool inPlace, string? outputPath)
+    {
+        if (inPlace)
+            return sourcePath;
+
+        if (!string.IsNullOrWhiteSpace(outputPath))
+            return NormalizePath(outputPath);
+
+        var dir = Path.GetDirectoryName(sourcePath) ?? Environment.CurrentDirectory;
+        var name = Path.GetFileNameWithoutExtension(sourcePath);
+        var ext = Path.GetExtension(sourcePath);
+        return Path.Combine(dir, $"{name}.patched{ext}");
+    }
+
+    private static string BuildBackupPath(string sourcePath)
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var candidate = $"{sourcePath}.{timestamp}.bak";
+        return candidate;
+    }
 
     private static string NormalizeTypeName(string typeName)
         => typeName.Replace(" ", string.Empty, StringComparison.Ordinal)

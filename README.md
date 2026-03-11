@@ -12,6 +12,8 @@ MCP server for .NET reverse engineering workflows (dnSpy/ILSpy ecosystem), built
 - Structured tool outputs (`structuredContent`) + plain text content
 - Single-file publish profiles (win-x64 / linux-x64)
 
+For full implementation details, see `AGENT.md`.
+
 ## Project layout
 
 - `dnspy-mcp.slnx`
@@ -34,8 +36,12 @@ MCP server for .NET reverse engineering workflows (dnSpy/ILSpy ecosystem), built
 - `list_methods` (helper for overload signatures)
 - `find_string_references` (find string-literal references in IL)
 - `format_dnspy_jump` (turn tokens/IL offsets into direct dnSpy navigation steps)
+- `patch_replace_string_literal` (patch one IL string literal)
+- `patch_nop_instructions` (NOP one/many IL instructions)
 
 Navigation-friendly output: search/method/reference results include metadata tokens (`TypeDef`, `MethodDef`, etc.) so you can jump directly in dnSpy by token.
+
+Patch safety: patch tools **always create a backup** before writing changes.
 
 All tools return:
 - `content` (text)
@@ -244,6 +250,28 @@ Tip: also search fragments like `Pictures\\Screenshots` or just `Screenshot`.
   "typeDefToken": "0x02000058",
   "methodDefToken": "0x060005C1",
   "ilOffset": "IL_01D2"
+}
+```
+
+7. `patch_replace_string_literal` (always creates backup)
+```json
+{
+  "assemblyPath": "C:/Program Files (x86)/Cato Networks/Cato Client/CatoClient.exe",
+  "methodDefToken": "0x060005C1",
+  "ilOffset": "IL_01D2",
+  "newText": "[patched text]",
+  "inPlace": false
+}
+```
+
+8. `patch_nop_instructions` (always creates backup)
+```json
+{
+  "assemblyPath": "C:/Program Files (x86)/Cato Networks/Cato Client/CatoClient.exe",
+  "methodDefToken": "0x060005C1",
+  "ilOffset": "IL_01DD",
+  "count": 1,
+  "inPlace": false
 }
 ```
 
