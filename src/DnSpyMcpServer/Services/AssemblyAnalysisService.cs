@@ -108,10 +108,13 @@ internal sealed class AssemblyAnalysisService
 
             foreach (var method in type.Methods)
             {
-                if (ContainsIgnoreCase(method.Name, query))
+                if (ContainsIgnoreCase(method.Name, query)) 
                 {
-                    results.Add(
-                        $"method: {type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} MethodDef={FormatToken(method.MDToken.Raw)}");
+                    var methodLine = $"method: {RenderMethodSignature(method)} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | MethodDef={FormatToken(method.MDToken.Raw)}";
+                    var rva = GetMethodAddressRva(method);
+                    if (rva != null)
+                        methodLine += $" | Il2CppRVA={rva}";
+                    results.Add(methodLine);
                 }
             }
 
@@ -119,8 +122,11 @@ internal sealed class AssemblyAnalysisService
             {
                 if (ContainsIgnoreCase(field.Name, query))
                 {
-                    results.Add(
-                        $"field: {type.FullName}.{field.Name} | TypeDef={FormatToken(type.MDToken.Raw)} FieldDef={FormatToken(field.MDToken.Raw)}");
+                    var fieldLine = $"field: {field.Name} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | FieldDef={FormatToken(field.MDToken.Raw)}";
+                    var offset = GetFieldOffset(field);
+                    if (offset != null)
+                        fieldLine += $" | Il2CppFieldOffset={offset}";
+                    results.Add(fieldLine);
                 }
             }
 
@@ -129,7 +135,7 @@ internal sealed class AssemblyAnalysisService
                 if (ContainsIgnoreCase(property.Name, query))
                 {
                     results.Add(
-                        $"property: {type.FullName}.{property.Name} | TypeDef={FormatToken(type.MDToken.Raw)} PropertyDef={FormatToken(property.MDToken.Raw)}");
+                        $"property: {property.Name} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | PropertyDef={FormatToken(property.MDToken.Raw)}");
                 }
             }
 
@@ -169,7 +175,7 @@ internal sealed class AssemblyAnalysisService
                         continue;
 
                     var match =
-                        $"{type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} MethodDef={FormatToken(method.MDToken.Raw)} | IL_{instruction.Offset:X4} | \"{literal}\"";
+                        $"{type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} | MethodDef={FormatToken(method.MDToken.Raw)} | IL_{instruction.Offset:X4} | \"{literal}\"";
                     results.Add(match);
 
                     if (results.Count >= maxResults)
@@ -438,6 +444,48 @@ internal sealed class AssemblyAnalysisService
             return Path.GetFullPath(input);
 
         return Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, input));
+    }
+
+    private static string? GetMethodAddressRva(MethodDef method)
+    {
+        foreach (var attr in method.CustomAttributes)
+        {
+            if (attr.TypeFullName.Contains("AddressAttribute"))
+            {
+                var rvaArg = attr.NamedArguments.FirstOrDefault(a => a.Name == "RVA");
+                if (rvaArg != null)
+                {
+                    var value = rvaArg.Argument.Value;
+                    if (value is string strValue)
+                        return strValue;
+                    if (value is uint uintValue)
+                        return $"0x{uintValue:X}";
+                    return value?.ToString();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static string? GetFieldOffset(FieldDef field)
+    {
+        foreach (var attr in field.CustomAttributes)
+        {
+            if (attr.TypeFullName.Contains("FieldOffset"))
+            {
+                var offsetArg = attr.NamedArguments.FirstOrDefault(a => a.Name == "Offset");
+                if (offsetArg != null)
+                {
+                    var value = offsetArg.Argument.Value;
+                    if (value is string strValue)
+                        return strValue;
+                    if (value is uint uintValue)
+                        return $"0x{uintValue:X}";
+                    return value?.ToString();
+                }
+            }
+        }
+        return null;
     }
 
     private sealed record LoadedAssembly(string Path, ModuleDefMD Module, CSharpDecompiler Decompiler);
