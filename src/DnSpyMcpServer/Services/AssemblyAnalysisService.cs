@@ -446,44 +446,31 @@ internal sealed class AssemblyAnalysisService
         return Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, input));
     }
 
-    private static string? GetMethodAddressRva(MethodDef method)
-    {
-        foreach (var attr in method.CustomAttributes)
-        {
-            if (attr.TypeFullName.Contains("AddressAttribute"))
-            {
-                var rvaArg = attr.NamedArguments.FirstOrDefault(a => a.Name == "RVA");
-                if (rvaArg != null)
-                {
-                    var value = rvaArg.Argument.Value;
-                    if (value is string strValue)
-                        return strValue;
-                    if (value is uint uintValue)
-                        return $"0x{uintValue:X}";
-                    return value?.ToString();
-                }
-            }
-        }
-        return null;
-    }
+    private static string? GetMethodAddressRva(MethodDef method) =>
+        GetIl2CppMetadataAttributeValue(method.CustomAttributes, "AddressAttribute", "RVA");
 
-    private static string? GetFieldOffset(FieldDef field)
+    private static string? GetFieldOffset(FieldDef field) =>
+        GetIl2CppMetadataAttributeValue(field.CustomAttributes, "FieldOffset", "Offset");
+
+    private static string? GetIl2CppMetadataAttributeValue(IEnumerable<CustomAttribute> attributes, string attributeName, string argumentName)
     {
-        foreach (var attr in field.CustomAttributes)
+        foreach (var attr in attributes)
         {
-            if (attr.TypeFullName.Contains("FieldOffset"))
+            if (!attr.TypeFullName.Contains(attributeName))
+                continue;
+            
+            var arg = attr.NamedArguments.FirstOrDefault(a => a.Name == argumentName);
+            if (arg == null)
+                continue;
+
+            var value = arg.Argument.Value;
+            return value switch
             {
-                var offsetArg = attr.NamedArguments.FirstOrDefault(a => a.Name == "Offset");
-                if (offsetArg != null)
-                {
-                    var value = offsetArg.Argument.Value;
-                    if (value is string strValue)
-                        return strValue;
-                    if (value is uint uintValue)
-                        return $"0x{uintValue:X}";
-                    return value?.ToString();
-                }
-            }
+                string s => s,
+                uint u => $"0x{u:X}",
+                ulong ul => $"0x{ul:X}",
+                _ => value?.ToString()
+            };
         }
         return null;
     }
