@@ -214,7 +214,7 @@ internal sealed class AssemblyAnalysisService
         var backupPath = BuildBackupPath(sourcePath);
         File.Copy(sourcePath, backupPath, overwrite: false);
 
-        var module = ModuleDefMD.Load(sourcePath);
+        using var module = ModuleDefMD.Load(sourcePath);
         var method = ResolveMethodByToken(module, methodDefToken);
         if (!method.HasBody || method.Body is null)
             throw new InvalidOperationException($"Method has no IL body: {methodDefToken}");
@@ -246,51 +246,57 @@ internal sealed class AssemblyAnalysisService
         if (count <= 0)
             throw new InvalidOperationException("count must be > 0");
 
-        var sourcePath = NormalizePath(assemblyPath);
-        if (!File.Exists(sourcePath))
-            throw new FileNotFoundException($"Assembly not found: {sourcePath}");
-
-        var destinationPath = ResolvePatchDestination(sourcePath, inPlace, outputPath);
-        var backupPath = BuildBackupPath(sourcePath);
-        File.Copy(sourcePath, backupPath, overwrite: false);
-
-        var module = ModuleDefMD.Load(sourcePath);
-        var method = ResolveMethodByToken(module, methodDefToken);
-        if (!method.HasBody || method.Body is null)
-            throw new InvalidOperationException($"Method has no IL body: {methodDefToken}");
-
-        var offset = ParseIlOffset(ilOffset);
-        var instructions = method.Body.Instructions;
-        var startIndex = -1;
-        for (var i = 0; i < instructions.Count; i++)
+        try
         {
-            if (instructions[i].Offset == offset)
+            var sourcePath = NormalizePath(assemblyPath);
+            if (!File.Exists(sourcePath))
+                throw new FileNotFoundException($"Assembly not found: {sourcePath}");
+
+            var destinationPath = ResolvePatchDestination(sourcePath, inPlace, outputPath);
+            var backupPath = BuildBackupPath(sourcePath);
+            File.Copy(sourcePath, backupPath, overwrite: false);
+
+            using var module = ModuleDefMD.Load(sourcePath);
+            var method = ResolveMethodByToken(module, methodDefToken);
+            if (!method.HasBody || method.Body is null)
+                throw new InvalidOperationException($"Method has no IL body: {methodDefToken}");
+
+            var offset = ParseIlOffset(ilOffset);
+            var instructions = method.Body.Instructions;
+            var startIndex = -1;
+            for (var i = 0; i < instructions.Count; i++)
             {
-                startIndex = i;
-                break;
+                if (instructions[i].Offset == offset)
+                {
+                    startIndex = i;
+                    break;
+                }
             }
+
+            if (startIndex < 0)
+                throw new InvalidOperationException($"IL offset not found in method {methodDefToken}: IL_{offset:X4}");
+
+            var end = Math.Min(startIndex + count, instructions.Count);
+            for (var i = startIndex; i < end; i++)
+            {
+                instructions[i] = new dnlib.DotNet.Emit.Instruction(dnlib.DotNet.Emit.OpCodes.Nop);
+            }
+
+            module.Write(destinationPath);
+
+            return string.Join(Environment.NewLine,
+                "Patch applied: NOP instructions",
+                $"source: {sourcePath}",
+                $"backup: {backupPath}",
+                $"output: {destinationPath}",
+                $"method: {FormatToken(method.MDToken.Raw)}",
+                $"startOffset: IL_{offset:X4}",
+                $"count: {end - startIndex}");
         }
-
-        if (startIndex < 0)
-            throw new InvalidOperationException($"IL offset not found in method {methodDefToken}: IL_{offset:X4}");
-
-        var end = Math.Min(startIndex + count, instructions.Count);
-        for (var i = startIndex; i < end; i++)
+        catch (Exception ex)
         {
-            instructions[i].OpCode = dnlib.DotNet.Emit.OpCodes.Nop;
-            instructions[i].Operand = null;
+            throw new InvalidOperationException($"Patch NOP failed: {ex.GetType().Name}: {ex.Message}", ex);
         }
-
-        module.Write(destinationPath);
-
-        return string.Join(Environment.NewLine,
-            "Patch applied: NOP instructions",
-            $"source: {sourcePath}",
-            $"backup: {backupPath}",
-            $"output: {destinationPath}",
-            $"method: {FormatToken(method.MDToken.Raw)}",
-            $"startOffset: IL_{offset:X4}",
-            $"count: {end - startIndex}");
     }
 
     private LoadedAssembly GetOrLoad(string assemblyPath)
@@ -355,12 +361,14 @@ internal sealed class AssemblyAnalysisService
 
     private static bool ParametersMatch(MethodDef method, IReadOnlyList<string> normalizedParameterTypeNames)
     {
-        if (method.Parameters.Count != normalizedParameterTypeNames.Count)
+        // Use MethodSig.Params to exclude the hidden 'this' parameter for instance methods
+        var sigParams = method.MethodSig.Params;
+        if (sigParams.Count != normalizedParameterTypeNames.Count)
             return false;
 
-        for (var i = 0; i < method.Parameters.Count; i++)
+        for (var i = 0; i < sigParams.Count; i++)
         {
-            var actual = NormalizeTypeName(method.Parameters[i].Type.FullName);
+            var actual = NormalizeTypeName(sigParams[i].FullName);
             if (!string.Equals(actual, normalizedParameterTypeNames[i], StringComparison.OrdinalIgnoreCase))
                 return false;
         }
@@ -430,7 +438,7 @@ internal sealed class AssemblyAnalysisService
 
     private static string NormalizeTypeName(string typeName)
         => typeName.Replace(" ", string.Empty, StringComparison.Ordinal)
-                   .Replace("+", ".", StringComparison.Ordinal);
+                   .Replace("+", "/", StringComparison.Ordinal);
 
     private static bool ContainsIgnoreCase(string source, string value)
         => source.Contains(value, StringComparison.OrdinalIgnoreCase);

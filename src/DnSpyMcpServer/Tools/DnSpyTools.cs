@@ -56,16 +56,28 @@ internal static class DnSpyTools
         [ToolParam("Optional parameter type list to pick a specific overload (e.g. [\"System.String\",\"System.Int32\"]).")]
         string[]? parameterTypeNames = null)
     {
-        var code = ctx.Analysis.DecompileMethod(assemblyPath, typeFullName, methodName, parameterTypeNames);
-        return new ToolCallResult(code, new
+        try
         {
-            assemblyPath,
-            typeFullName,
-            methodName,
-            parameterTypeNames,
-            language = "csharp",
-            code
-        });
+            var code = ctx.Analysis.DecompileMethod(assemblyPath, typeFullName, methodName, parameterTypeNames);
+            return new ToolCallResult(code, new
+            {
+                assemblyPath,
+                typeFullName,
+                methodName,
+                parameterTypeNames,
+                language = "csharp",
+                code
+            });
+        }
+        catch (Exception ex)
+        {
+            return new ToolCallResult($"Error: {ex.Message}\n{ex.StackTrace}", new
+            {
+                error = true,
+                message = ex.Message,
+                stackTrace = ex.StackTrace
+            });
+        }
     }
 
     [McpTool("get_method_il", "Get raw IL for one method. Supports overload selection.")]
@@ -80,16 +92,28 @@ internal static class DnSpyTools
         [ToolParam("Optional parameter type list to pick a specific overload.")]
         string[]? parameterTypeNames = null)
     {
-        var il = ctx.Analysis.GetMethodIl(assemblyPath, typeFullName, methodName, parameterTypeNames);
-        return new ToolCallResult(il, new
+        try
         {
-            assemblyPath,
-            typeFullName,
-            methodName,
-            parameterTypeNames,
-            language = "il",
-            il
-        });
+            var il = ctx.Analysis.GetMethodIl(assemblyPath, typeFullName, methodName, parameterTypeNames);
+            return new ToolCallResult(il, new
+            {
+                assemblyPath,
+                typeFullName,
+                methodName,
+                parameterTypeNames,
+                language = "il",
+                il
+            });
+        }
+        catch (Exception ex)
+        {
+            return new ToolCallResult($"Error: {ex.Message}\n{ex.StackTrace}", new
+            {
+                error = true,
+                message = ex.Message,
+                stackTrace = ex.StackTrace
+            });
+        }
     }
 
     [McpTool("search_members", "Search matching type/member names inside an assembly.")]
