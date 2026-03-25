@@ -108,10 +108,13 @@ internal sealed class AssemblyAnalysisService
 
             foreach (var method in type.Methods)
             {
-                if (ContainsIgnoreCase(method.Name, query))
+                if (ContainsIgnoreCase(method.Name, query)) 
                 {
-                    results.Add(
-                        $"method: {type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} MethodDef={FormatToken(method.MDToken.Raw)}");
+                    var methodLine = $"method: {RenderMethodSignature(method)} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | MethodDef={FormatToken(method.MDToken.Raw)}";
+                    var rva = GetMethodAddressRva(method);
+                    if (rva != null)
+                        methodLine += $" | Il2CppRVA={rva}";
+                    results.Add(methodLine);
                 }
             }
 
@@ -119,8 +122,11 @@ internal sealed class AssemblyAnalysisService
             {
                 if (ContainsIgnoreCase(field.Name, query))
                 {
-                    results.Add(
-                        $"field: {type.FullName}.{field.Name} | TypeDef={FormatToken(type.MDToken.Raw)} FieldDef={FormatToken(field.MDToken.Raw)}");
+                    var fieldLine = $"field: {field.Name} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | FieldDef={FormatToken(field.MDToken.Raw)}";
+                    var offset = GetFieldOffset(field);
+                    if (offset != null)
+                        fieldLine += $" | Il2CppFieldOffset={offset}";
+                    results.Add(fieldLine);
                 }
             }
 
@@ -129,7 +135,7 @@ internal sealed class AssemblyAnalysisService
                 if (ContainsIgnoreCase(property.Name, query))
                 {
                     results.Add(
-                        $"property: {type.FullName}.{property.Name} | TypeDef={FormatToken(type.MDToken.Raw)} PropertyDef={FormatToken(property.MDToken.Raw)}");
+                        $"property: {property.Name} | Type={type.FullName} | TypeDef={FormatToken(type.MDToken.Raw)} | PropertyDef={FormatToken(property.MDToken.Raw)}");
                 }
             }
 
@@ -169,7 +175,7 @@ internal sealed class AssemblyAnalysisService
                         continue;
 
                     var match =
-                        $"{type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} MethodDef={FormatToken(method.MDToken.Raw)} | IL_{instruction.Offset:X4} | \"{literal}\"";
+                        $"{type.FullName}.{RenderMethodSignature(method)} | TypeDef={FormatToken(type.MDToken.Raw)} | MethodDef={FormatToken(method.MDToken.Raw)} | IL_{instruction.Offset:X4} | \"{literal}\"";
                     results.Add(match);
 
                     if (results.Count >= maxResults)
@@ -438,6 +444,35 @@ internal sealed class AssemblyAnalysisService
             return Path.GetFullPath(input);
 
         return Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, input));
+    }
+
+    private static string? GetMethodAddressRva(MethodDef method) =>
+        GetIl2CppMetadataAttributeValue(method.CustomAttributes, "AddressAttribute", "RVA");
+
+    private static string? GetFieldOffset(FieldDef field) =>
+        GetIl2CppMetadataAttributeValue(field.CustomAttributes, "FieldOffset", "Offset");
+
+    private static string? GetIl2CppMetadataAttributeValue(IEnumerable<CustomAttribute> attributes, string attributeName, string argumentName)
+    {
+        foreach (var attr in attributes)
+        {
+            if (!attr.TypeFullName.Contains(attributeName))
+                continue;
+            
+            var arg = attr.NamedArguments.FirstOrDefault(a => a.Name == argumentName);
+            if (arg == null)
+                continue;
+
+            var value = arg.Argument.Value;
+            return value switch
+            {
+                string s => s,
+                uint u => $"0x{u:X}",
+                ulong ul => $"0x{ul:X}",
+                _ => value?.ToString()
+            };
+        }
+        return null;
     }
 
     private sealed record LoadedAssembly(string Path, ModuleDefMD Module, CSharpDecompiler Decompiler);
